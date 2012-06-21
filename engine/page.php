@@ -17,7 +17,7 @@
  * @since      File available since Release 1.0.0
  */
 
-class Page extends CRCore {
+class CRPage extends CRCore {
 
 	public static    $DEBUGLEVEL = 0;
 
@@ -29,6 +29,23 @@ class Page extends CRCore {
     private   static $pages;
 	private   static $sections;
     //@}
+    
+    /**
+     * check if a page exists
+     *
+     * @access public
+     * @param  integer $id
+     * @return boolean
+     **/
+	public static function exists($id) {
+	    if(!isset(self::$pages[$id]) || !is_array(self::$pages[$id])) {
+		    self::get_page_properties($id);
+		}
+		if(!isset(self::$pages[$id]) || !is_array(self::$pages[$id])) {
+		    return false;
+  		}
+  		return true;
+	}   // end function exists()
     
     /**
      * get active blocks (aka sections) for page $page_id
@@ -53,9 +70,10 @@ class Page extends CRCore {
 	 *
 	 **/
 	public static function get_block($block=1,$print=true) {
-	    if (!is_numeric($block))     $block = 1;           // default block
-	    if (!self::get_current())    self::get_page_properties(-1);   // get root page
-	    $sections = Page::get_sections( PAGE_ID, $block ); // get active get_sections
+		global $database; // this is for WB/LEPTON
+	    if (!is_numeric($block))  $block = 1;                    // default block
+	    if (!self::get_current()) self::get_page_properties(-1); // get root page
+	    $sections = CRPage::get_sections( PAGE_ID, $block );     // get active get_sections
 	    CRLogger::debug(sprintf('block_id [%d] page_id [%d] section count [%d]',$block,PAGE_ID,count($sections)));
 	    if(!is_array($sections)||!count($sections)) {
 			echo 'no active sections';
@@ -95,9 +113,15 @@ class Page extends CRCore {
      * @return mixed
      **/
     public static function get_current($id=false) {
-        return ( isset(self::$pages[self::$current]) && is_array(self::$pages[self::$current]))
-			? ( ($id) ? self::$current : self::$pages[self::$current] )
-			: false;
+        if ( $id ) {
+            if ( !isset(self::$pages[$id])||!is_array(self::$pages[$id]) ) {
+                self::get_page_properties($id);
+            }
+		}
+		if ( self::$current && isset(self::$pages[self::$current]) && is_array(self::$pages[self::$current]) ) {
+		    return self::$current;
+		}
+		return false;
 	}   // end function get_current()
 	
 	/**
@@ -122,7 +146,7 @@ class Page extends CRCore {
 	 **/
 	public static function get_description() {
 	    if (!self::get_current()) self::get_page_properties(-1);    // get root page
-		$page     = Page::get_current();
+		$page     = CRPage::get_current();
 		$settings = CRCore::get('GLOBALS.settings');
 		$output   = NULL;
 		if ( isset($page['description']) && $page['description'] != '' ) {
@@ -144,7 +168,7 @@ class Page extends CRCore {
 	 **/
 	public static function get_headers($for,$print_output,$current_section) {
 	
-	}   // end function headers()
+	}   // end function get_headers()
 	
     /**
      * find page and load the properties
@@ -253,5 +277,40 @@ class Page extends CRCore {
 		}
 		return $content;
 	}   // end function eval_droplets()
+	
+	/**
+	 * set page id for page to serve
+	 **/
+	public static function set_current($id) {
+	    self::$current = $id;
+	}   // end function set_current()
+	
+	/**
+	 *
+	 *
+	 *
+	 *
+	 **/
+	public static function show($path) {
+	    CREvent::raise('before');
+		self::get_page_properties($path);
+		$id = self::get_current(1);
+		CRLogger::debug(sprintf('serving page with id [%s]',$id));
+		CREvent::raise('on');
+		// --- check if the page exists ---
+		if(!self::exists($id)){
+		    CRLogger::err('no such page!');
+			self::error('404','no such page!');
+		    exit;
+		}
+		// get page; the template 'pulls' the contents (function page_content())
+		$output = CRTemplate::view('index.php',array());
+		// raise after event for output filters
+		CREvent::raise('after',$output);
+		// replace droplets
+		CRPage::eval_droplets($output);
+		// print page
+		echo $output;
+	}
 
 }
