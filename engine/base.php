@@ -204,6 +204,14 @@ class CRBase {
 	}   // end function get()
 
 	/**
+	 * enable/disable debug
+	 **/
+	public static function debug($class,$enable) {
+		if($enable) { $class::$DEBUGLEVEL = 9; }
+		else        { $class::$DEBUGLEVEL = 0; }
+	}
+	
+	/**
 	 * custom error handler
 	 **/
 	public static function error($code,$str='',$trace=false) {
@@ -247,9 +255,15 @@ class CRBase {
 					  . implode("\n",$temp)
 					  . '</table><br /><br />';
 		}
+		if ( defined('self::HTTP_'.$code) ) {
+		    $status = sprintf( '%s (%d)', constant('self::HTTP_'.$code), $code );
+		}
+		else {
+		    $status = 'unknown error code ['.$code.']';
+		}
 		echo str_ireplace(
-		    array( '%title%'        , '%header%'       , '%content%', '%trace%', '%footer%' ),
-		    array( 'CRISSANDO Error', 'Crissando Error', $str       , $dbgtrace, ''         ),
+		    array( '%title%'        , '%header%'       , '%status%', '%content%', '%trace%', '%footer%' ),
+		    array( 'CRISSANDO Error', 'Crissando Error', $status   , $str       , $dbgtrace, ''         ),
 		    $errfile
 		);
 		exit();
@@ -264,17 +278,22 @@ class CRBase {
 	 **/
 	public static function initdb() {
 	    $class    = get_called_class();
-	    $filename = self::path(ENGINE_PATH.'/engine/config/'.self::get('GLOBALS.database_engine','MySQL').'/'.strtolower($class).'.cfg');
-	    if ( file_exists($filename) ) {
-	    	$config = self::config($filename);
-			$class::$statements = $config['statements'];
-			if ( is_array( $config['statements'] ) ) {
-			    foreach( $config['statements'] as $name => $statement ) {
-			        CRDB::registerQuery( $name, $statement );
-			    }
+	    $files    = array(
+	        self::path(ENGINE_PATH.'/engine/config/'.self::get('GLOBALS.database_engine','MySQL').'/'.strtolower($class).'.cfg'),
+	        self::path(ENGINE_PATH.'/engine/config/'.self::get('GLOBALS.database_engine','MySQL').'/'.strtolower(str_ireplace('CR','',$class)).'.cfg'),
+		);
+	    foreach( $files as $filename ) {
+		    if ( file_exists($filename) ) {
+		    	$config = self::config($filename);
+				$class::$statements = $config['statements'];
+				if ( is_array( $config['statements'] ) ) {
+				    foreach( $config['statements'] as $name => $statement ) {
+				        CRDB::registerQuery( $name, $statement );
+				    }
+				}
 			}
 		}
-	}   // end function init()
+	}   // end function initdb()
 
 	/**
 	 * sanitize path
