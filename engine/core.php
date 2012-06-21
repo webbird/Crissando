@@ -30,9 +30,16 @@ include 'base.php';
  */
 class CREvent extends CRBase {
 
-	private static $hooks = array( 'before', 'on', 'after' );
-	private static $before, $on, $after, $params;
-	public  static $DEBUGLEVEL = 0;
+	//@{ public static properties
+	public static  $DEBUGLEVEL = 0;
+	//@}
+	
+	//@{ private static properties
+	private   static $hooks = array('before','on','after');
+	private   static $before, $on, $after, $params;
+	protected static $statements;
+	private   static $initialized = false;
+	//@}
 
 	/**
 	 * catch static function calls to unknown functions
@@ -51,6 +58,19 @@ class CREvent extends CRBase {
 		    throw new Exception( 'no such hook: '.$static );
 		}
 	}   // end function before()
+	
+	/**
+	 *
+	 **/
+	private function init() {
+	    if(self::$initialized) return;
+	    if(!is_array(CREvent::$statements)) CREvent::initdb();
+	    $hooks = CRDB::execute('get_hooks')->fetchAll();
+	    foreach( $hooks as $id => $hook ) {
+	        CREvent::$hook['when']( $hook['for'], $hook['func'] );
+	    }
+        self::$initialized = true;
+	}   // end function init()
 
 	/**
 	 * raise event; this handled registered hooks
@@ -59,11 +79,12 @@ class CREvent extends CRBase {
 	 * @return void
 	 **/
 	public static function raise() {
+		self::init();
 	    $args   = func_get_args();
 	    $event  = array_shift($args);
 	    $temp   = array_slice( debug_backtrace(), 1, 1 );
- 	    $caller = ( isset($temp[0]['function']) )
-				? $temp[0]['function']
+ 	    $caller = ( isset($temp[0]['class']) && isset($temp[0]['function']) )
+				? $temp[0]['class'].'::'.$temp[0]['function']
 				: NULL;
         CRLogger::debug('raised event ['.$event.'] from ['.$caller.'] with args count ['.count($args).']');
 	    if(isset(self::${$event}[$caller]) && is_array(self::${$event}[$caller])) {
@@ -96,7 +117,8 @@ class CREvent extends CRBase {
 			return false;
 		}
 	}
-}
+	
+}   // ----- END CLASS CREVENT -----
 
 /**
  * Crissando CMS CRLogger
@@ -130,7 +152,6 @@ class CRLogger extends CRBase {
 		5 => 'NOTICE',
 		6 => 'INFO  ',
 	    9 => 'DEBUG ',
-	    
 	);
 	
 	private static $handles;
@@ -209,7 +230,8 @@ class CRLogger extends CRBase {
 		if($args&&$level==9) fwrite(self::$handles[$filename],print_r($args,1));
 		flock(self::$handles[$filename],LOCK_UN);
 	}   // end function log()
-}
+	
+}   // --- END CLASS CRLOGGER -----
 
 /**
  * Crissando CMS Core
@@ -223,8 +245,10 @@ class CRLogger extends CRBase {
 if ( ! class_exists( 'CRCore', false ) ) {
 	class CRCore extends CRBase {
 
-		public static $DEBUGLEVEL = 9;
+        //@{ public static properties
+		public static $DEBUGLEVEL = 0;
 		public static $PATH       = NULL;
+		//@}
 
 		/**
 		 * Proxy for framework methods
@@ -254,7 +278,13 @@ echo "trying to get: --$v--<br />";
 	        $paths = self::get('INCPATHS');
 	        $paths = ( is_array($paths) ? array_merge(array(dirname(__FILE__)),$paths) : array(dirname(__FILE__)) );
 	        foreach($paths as $path) {
+	            // orig. class name
 	            if (file_exists($path.DIRECTORY_SEPARATOR.strtolower($class).'.php')) {
+					return require $path.DIRECTORY_SEPARATOR.strtolower($class).'.php';
+				}
+				// class name without leading 'CR'
+				$class = str_ireplace('CR','',$class);
+				if (file_exists($path.DIRECTORY_SEPARATOR.strtolower($class).'.php')) {
 					return require $path.DIRECTORY_SEPARATOR.strtolower($class).'.php';
 				}
 			}
@@ -270,7 +300,7 @@ echo "trying to get: --$v--<br />";
 		public static function config($file) {
 		    $config = parent::config($file);
 			// set globals; this maps [<sectionname>] to <functionname>
-			$plan   = array('routes'=>'route','globals'=>'set','log'=>'set');
+			$plan   = array('routes'=>'route','globals'=>'set','debug'=>'debug','log'=>'set');
 			ob_start();
 			foreach ($config as $sec=>$pairs){
 				if (isset($plan[$sec])){
@@ -294,12 +324,11 @@ echo "trying to get: --$v--<br />";
 	     * @return mixed
 	     **/
 		public static function dispatch(){
-		    CREvent::raise('before');
+		    CREvent::raise('before');     // raise before event
 		    // Process routes
 			if (!isset(self::$vars['ROUTES']) || !self::$vars['ROUTES']) {
-				Log::emerg('no routes!');
+				CRLogger::emerg('no routes!');
 				self::error('500','No routes!');
-				return;
 			}
 			$path =   isset($_SERVER['ORIG_PATH_INFO']) ? $_SERVER['ORIG_PATH_INFO']
 				  : ( isset($_SERVER['PATH_INFO'])      ? $_SERVER['PATH_INFO']      : '/' );
@@ -313,18 +342,9 @@ echo "trying to get: --$v--<br />";
 			}
 			CRCore::$PATH = $path;
 			CRLogger::debug(sprintf('dispatching path [%s]',CRCore::$PATH));
-			Page::get_page_properties(CRCore::$PATH);
-			CRLogger::debug(sprintf('serving page with id [%s]',Page::get_current(1)));
-			// raise on event for WB/LEPTON callbacks
-			CREvent::raise('on');
-			// get page
-			$output = CRTemplate::view('index.php',array());
-			// raise after event for output filters
-			CREvent::raise('after',$output);
-			// replace droplets
-			Page::eval_droplets($output);
-			// print page
-			echo $output;
+			CREvent::raise('on');        // raise on event for callbacks
+			CRPage::show(CRCore::$PATH); // hand over to page handler
+			CREvent::raise('after');     // raise after event
 		}   // end function dispatch()
 
 		/**
@@ -414,7 +434,7 @@ class CRTemplate extends CRCore {
 		return $output;
 	}   // end function dwoo()
 
-}
+}   // ----- END CLASS CRTEMPLATE -----
 
 /**
  * Crissando CMS - Database abstraction layer
@@ -430,7 +450,7 @@ class CRDB extends CRCore {
 
 	//@{ public static properties
 	public static  $pdo;
-	public static  $DEBUGLEVEL = 9;
+	public static  $DEBUGLEVEL = 0;
 	//@}
 
 	//@{ private static properties
@@ -528,7 +548,7 @@ class CRDB extends CRCore {
 			self::$pdo = self::getInstance();
 	}   // end function query()
 
-}   // end class CRDB
+}   // ----- END CLASS CRDB -----
 
 class MySQL extends CRDB {
 
@@ -559,4 +579,5 @@ class MySQL extends CRDB {
 		    echo $e->getMessage();
 		}
 	}
-}   // end class MySQL
+	
+}   // ----- END CLASS MYSQL -----
