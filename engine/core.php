@@ -189,14 +189,21 @@ class CRLogger extends CRBase {
         array_shift($trace);
         array_shift($trace);
        	$caller   = array_shift($trace);
-        if( trim(strtolower($caller['class'])) === 'logger' ) {
+        if( trim(strtolower($caller['class'])) === 'crlogger' ) {
             $caller   = array_shift($trace);
 		}
-        $filename = trim(strtolower($caller['class']).'_'.strtolower(self::$num_to_text[$level]));
+		$logpath = self::path(self::get('GLOBALS.log_path',dirname(__FILE__)));
+		$mode    = 'a+';
+		if($level==9) {
+		    $filename = 'debug';
+		    $mode     = 'w';
+  		}
+  		else {
+        	$filename = trim(strtolower(self::$num_to_text[$level]));
+		}
         // get handle or create one
         if(!isset(self::$handles[$filename])) {
-            $logpath                  = self::path(self::get('GLOBALS.log_path',dirname(__FILE__)));
-            self::$handles[$filename] = fopen($logpath.'/'.$filename.'.log','a+');
+            self::$handles[$filename] = fopen($logpath.'/'.$filename.'.log',$mode);
         }
         else {
             $temp    = stream_get_meta_data(self::$handles[$filename]);
@@ -223,8 +230,10 @@ class CRLogger extends CRBase {
 			self::$handles[$filename],
 			date('r').' ['.$_SERVER['REMOTE_ADDR'].'] '.
 				$file.' ('.
-				$caller['line'].') '.
-				( ( isset($caller['function']) && $caller['function'] != '' ) ? '['.$caller['function'].'()] ' : '' ) .
+				$caller['line'].') '.'['.
+				( ( isset($caller['class']) && $caller['class'] != '' ) ? $caller['class'].'::' : '' ) .
+				( ( isset($caller['function']) && $caller['function'] != '' ) ? $caller['function'].'()' : '' ) .
+				'] '.
 				$msg."\n"
 		);
 		if($args&&$level==9) fwrite(self::$handles[$filename],print_r($args,1));
@@ -300,7 +309,7 @@ echo "trying to get: --$v--<br />";
 		public static function config($file) {
 		    $config = parent::config($file);
 			// set globals; this maps [<sectionname>] to <functionname>
-			$plan   = array('routes'=>'route','globals'=>'set','debug'=>'debug','log'=>'set');
+			$plan   = array('routes'=>'route','globals'=>'set','debug'=>'debug','incpaths'=>'incpaths');
 			ob_start();
 			foreach ($config as $sec=>$pairs){
 				if (isset($plan[$sec])){
@@ -341,9 +350,11 @@ echo "trying to get: --$v--<br />";
 				// --- TODO: static page ---
 			}
 			CRCore::$PATH = $path;
-			CRLogger::debug(sprintf('dispatching path [%s]',CRCore::$PATH));
 			CREvent::raise('on');        // raise on event for callbacks
-			CRPage::show(CRCore::$PATH); // hand over to page handler
+			CRLogger::debug(sprintf('dispatching path [%s]',CRCore::$PATH));
+			// hand over to page handler
+			$page = new CRPage($path);
+			$page->show($path);
 			CREvent::raise('after');     // raise after event
 		}   // end function dispatch()
 
