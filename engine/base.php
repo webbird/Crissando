@@ -209,7 +209,7 @@ class CRBase {
 	public static function debug($class,$enable) {
 		if($enable) { $class::$DEBUGLEVEL = 9; }
 		else        { $class::$DEBUGLEVEL = 0; }
-	}
+	}   // end function debug()
 	
 	/**
 	 * custom error handler
@@ -268,6 +268,23 @@ class CRBase {
 		);
 		exit();
 	}   // end function error()
+	
+	/**
+	 *
+	 **/
+	public static function incpaths($ignore,$paths=NULL) {
+	    if(!$paths) return self::$vars['INCPATHS'];
+	    if(!is_array($paths)&&is_scalar($paths)) {
+	        $paths = array($paths);
+		}
+		if(is_array($paths)&&count($paths)) {
+		    foreach($paths as $ignore => $path) {
+		        self::$vars['INCPATHS'][] = self::path($path);
+			}
+		}
+		// remove doubles
+		array_unique(self::$vars['INCPATHS']);
+	}   // end function incpaths()
 
 	/**
 	 * this looks for a file <classname>.cfg in the config directory and loads
@@ -352,11 +369,11 @@ class CRBase {
 	 * @return void
 	 *
 	 **/
-	public static function set($key,$val){
+	public static function set($key,$val,$globalkey='GLOBALS'){
 	    $val = is_scalar($val)
 			 ? self::split($val)
 			 : $val;
-	    self::$vars['GLOBALS'][$key]=(count($val)>1)?$val:$val[0];
+	    self::$vars[$globalkey][$key]=(count($val)>1)?$val:$val[0];
 	}   // end function set()
 
 	/**
